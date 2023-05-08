@@ -20,7 +20,7 @@ from sklearn.svm import SVC
 
 
 
-def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, name=None, morganFP=True, save_split=False, debug_slice=None):
+def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, name=None, save_split=False, debug_slice=None):
     """
     Benchmark bioactivity data using the Lenselink, et al. (2017) protocol.
 
@@ -41,7 +41,6 @@ def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, nam
                             'RF' - Random Forest
                             'SVM' - Support Vector Machine 
         th (float) : Set active/inactive threshold
-        morganFP (bool, optional) : (De)activate Morgan Fingerprints
         save_split (bool, optional) : Save test and training sets with descriptors
         debug_slice (int, optional) : Create slice of X targets
     """
@@ -67,8 +66,7 @@ def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, nam
                                                                   df = dataframe, 
                                                                   th = th,
                                                                   split = split,  
-                                                                  desc_loc = desc_loc, 
-                                                                  morganFP = morganFP,                                                         
+                                                                  desc_loc = desc_loc,                                                          
                                                                   algorithm = algorithm,
                                                                   save_split = save_split,
                                                                   debug_slice = debug_slice
@@ -124,7 +122,7 @@ def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, nam
     else:
         results_global.to_csv('./results/summary.csv', mode='a', index=False, header=False)
 
-def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_split=False, debug_slice=None):
+def qsprClassification(name, df, th, split, desc_loc, algorithm, save_split=False, debug_slice=None):
     """
     Preform QSAR classification modelling for a whole dataset
 
@@ -134,7 +132,6 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
         th (float) : Set active/inactive threshold
         split (str) : Selected datasplit    
         desc_loc (str) : PATH to descriptor set
-        morganFP (bool) : (De)activate Morgan Fingerprints
         algorithm (str) : Selected algorithm
         save_split (bool, optional) : Save test and training sets with descriptors
         debug_slice (int, optional) : Create slice of X targets
@@ -171,7 +168,7 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
                                   smilescol = 'Canonical_Smiles',                              
                                   overwrite = True)
     
-            feature_calculator = setFeatureCalculator(desc_loc, morganFP)
+            feature_calculator = setFeatureCalculator(desc_loc)
             feature_standardizer = setFeatureStandardizer(algorithm)
 
             dataset = prepareDatasetQSPRPred(dataset, setSplitter(split), feature_calculator, feature_standardizer)
@@ -188,13 +185,13 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
             dp_act_test = (dataset.y_ind['BIOACT_PCHEMBL_VALUE_class'] == True).sum()           
 
             # Save split
-            if algorithm in ['QL'] or save_split == True:
+            if save_split == True:
                 train_df = pd.merge(dataset.y, dataset.X, on='QSPRID')
                 test_df = pd.merge(dataset.y_ind, dataset.X_ind, on='QSPRID')
-                if save_split == True:
-                    os.makedirs('./splits', exist_ok=True) 
-                    train_df.to_csv('./splits/'+tgt+'_'+split+'_train.csv', index=False)
-                    test_df.to_csv('./splits/'+tgt+'_'+split+'_test.csv', index=False)                
+                
+                os.makedirs('./splits', exist_ok=True) 
+                train_df.to_csv('./splits/'+tgt+'_'+split+'_train.csv', index=False)
+                test_df.to_csv('./splits/'+tgt+'_'+split+'_test.csv', index=False)                
 
             # Create model and make predictions
             if not skip:
@@ -360,8 +357,7 @@ def setAlgorithm(algorithm):
 
 def setFeatureCalculator(desc_loc, morganFP):
     descsets = [CustomCompoundDescriptor(fname=desc_loc)]
-    if morganFP:
-        descsets.append(FingerprintSet(fingerprint_type="MorganFP", radius=3, nBits=256))
+    descsets.append(FingerprintSet(fingerprint_type="MorganFP", radius=3, nBits=256))
     
     feature_calculator = DescriptorsCalculator(descsets=descsets)
 
@@ -392,26 +388,20 @@ if __name__ == "__main__":
     
     replicates = ['1']
     for run_id in replicates:
-        runs = {'run1': {'split':'rand', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
-                'run2': {'split':'rand', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
-                'run3': {'split':'rand', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
-                'run4': {'split':'rand', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
-                'run5': {'split':'rand', 'algorithm':'LR', 'th':6.5, 'morganFP':True},
-                'run6': {'split':'temp', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
-                'run7': {'split':'temp', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
-                'run8': {'split':'temp', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
-                'run9': {'split':'temp', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
-                'run10': {'split':'temp', 'algorithm':'LR', 'th':6.5, 'morganFP':True}}
+        runs = {'run1': {'split':'rand', 'algorithm':'NB', 'th':5.0},
+                'run2': {'split':'rand', 'algorithm':'NB', 'th':6.5},
+                'run3': {'split':'rand', 'algorithm':'RF', 'th':6.5},
+                'run4': {'split':'rand', 'algorithm':'SVM', 'th':6.5},
+                'run5': {'split':'rand', 'algorithm':'LR', 'th':6.5},
+                'run6': {'split':'temp', 'algorithm':'NB', 'th':5.0},
+                'run7': {'split':'temp', 'algorithm':'NB', 'th':6.5},
+                'run8': {'split':'temp', 'algorithm':'RF', 'th':6.5},
+                'run9': {'split':'temp', 'algorithm':'SVM', 'th':6.5},
+                'run10': {'split':'temp', 'algorithm':'LR', 'th':6.5}}
 
         for run, variables in runs.items():
-            split = variables['split']
-            algorithm = variables['algorithm']
-            th = variables['th']
-            morganFP = variables['morganFP']
             
-            name = split+'_'+algorithm+'_'+str(th)
-            if morganFP == False:
-                name += '_noFP'
+            name = variables['split'] + '_' + variables['algorithm'] + '_' + str(variables['th'])
             name += '_'+run_id
             
             print(f'\n----- Now running: {name} -----')
@@ -421,9 +411,8 @@ if __name__ == "__main__":
                             desc_loc = '/home/remco/projects/qlattice/dataset/lenselink2017_cmp_desc.json',
                             name = name,
                             model= 'QSAR',  
-                            split = split,     
-                            algorithm = algorithm,            
-                            th = th,
-                            morganFP = morganFP,
+                            split = variables['split'],     
+                            algorithm = variables['algorithm'],            
+                            th = variables['th'],
                             save_split = False,
                             debug_slice = None)              
