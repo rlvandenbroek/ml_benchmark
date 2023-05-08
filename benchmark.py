@@ -2,8 +2,6 @@ import math, os, random, sys, time
 import numpy as np
 import pandas as pd
 
-import feyn
-
 from qsprpred.data.data import QSPRDataset
 from qsprpred.data.utils.datasplitters import randomsplit, temporalsplit
 from qsprpred.data.utils.descriptorcalculator import DescriptorsCalculator
@@ -39,8 +37,7 @@ def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, nam
                         'temp' - Temporal datasplit
         algorithm (str) : Select algorithm:
                             'LR' - Logistic Regression
-                            'NB' - Naive Bayes  
-                            'QL' - QLattice      
+                            'NB' - Naive Bayes    
                             'RF' - Random Forest
                             'SVM' - Support Vector Machine 
         th (float) : Set active/inactive threshold
@@ -211,28 +208,11 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
 
                     model.evaluate(cross_validation=False)
                     model.fit()
-                if algorithm in ['QL']:
-                    ql = feyn.QLattice()
-                    stypes = {col: "f" for col in train_df.columns}
-                    
-                    models = ql.auto_run(train_df, 
-                                         output_name = 'BIOACT_PCHEMBL_VALUE_class', 
-                                         kind = 'classification',
-                                         stypes = stypes,
-                                         n_epochs=10,
-                                         threads=N_CPU,
-                                         max_complexity=10)
-                    model = models[0]
-                    with open('./'+name+'/qspr/models/'+model_name+'/'+model_name+'_expression.txt', 'w') as f:
-                        f.write(str(model.sympify(signif=3)))
 
         # Calculate metrics from predictions
         if not skip:
             if algorithm in ['LR', 'NB', 'RF', 'SVM']:
-                pred_tgt = pd.read_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t')
-            if algorithm in ['QL']:
-                pred_tgt['BIOACT_PCHEMBL_VALUE_class_Label'] = test_df['BIOACT_PCHEMBL_VALUE_class']
-                pred_tgt['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'] = model.predict(test_df)               
+                pred_tgt = pd.read_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t')             
         else:
             # Create random target prediction
             skip_count += 1
@@ -240,7 +220,7 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
             pred_tgt['BIOACT_PCHEMBL_VALUE_class_Label'] = df_tgt['BIOACT_PCHEMBL_VALUE'] >= th
             pred_tgt['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'] = np.random.rand(len(pred_tgt))
 
-        if skip or algorithm in ['QL']:
+        if skip:
             pred_tgt.to_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t', index=False)
 
         pred_pool = pd.concat([pred_pool, pred_tgt])
@@ -410,15 +390,11 @@ if __name__ == "__main__":
                 'run3': {'split':'rand', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
                 'run4': {'split':'rand', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
                 'run5': {'split':'rand', 'algorithm':'LR', 'th':6.5, 'morganFP':True},
-                'run6': {'split':'rand', 'algorithm':'QL', 'th':6.5, 'morganFP':True},
-                'run7': {'split':'rand', 'algorithm':'QL', 'th':6.5, 'morganFP':False},
-                'run8': {'split':'temp', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
-                'run9': {'split':'temp', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
-                'run10': {'split':'temp', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
-                'run11': {'split':'temp', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
-                'run12': {'split':'temp', 'algorithm':'LR', 'th':6.5, 'morganFP':True},
-                'run13': {'split':'temp', 'algorithm':'QL', 'th':6.5, 'morganFP':True},
-                'run14': {'split':'temp', 'algorithm':'QL', 'th':6.5, 'morganFP':False}}
+                'run6': {'split':'temp', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
+                'run7': {'split':'temp', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
+                'run8': {'split':'temp', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
+                'run9': {'split':'temp', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
+                'run10': {'split':'temp', 'algorithm':'LR', 'th':6.5, 'morganFP':True}}
 
         for run, variables in runs.items():
             split = variables['split']
