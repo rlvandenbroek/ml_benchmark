@@ -181,7 +181,7 @@ def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_
                     dataset = prepareDatasetQSPRPred(dataset, setSplitter(split), feature_calculator, feature_standardizer)
 
             # Check split
-            skip, message = checkSplit(dataset)
+            skip, message = checkSplit(dataset.y)
             dp_train = len(dataset.y)
             dp_act_train = (dataset.y['BIOACT_PCHEMBL_VALUE_class'] == True).sum()
             dp_test = len(dataset.y_ind)
@@ -249,6 +249,7 @@ def checkData(df, th, split):
     """
     Check if proper bioactivity data for each target.
     Checks (general):
+        At least 30 datapoints - Insufficient Datapoints (ID)
         At least 1 active data point at threshold - No Actives (NA)
         At least 1 inactive data point at threshold - No Inactives (NI)
     Checks (temporal split)
@@ -258,7 +259,9 @@ def checkData(df, th, split):
     skip = True
     message = None
 
-    if df['BIOACT_PCHEMBL_VALUE'].max() < th:
+    if len(df) < 30:
+        message = "ID"    
+    elif df['BIOACT_PCHEMBL_VALUE'].max() < th:
         message = 'NA'
     elif df['BIOACT_PCHEMBL_VALUE'].min() >= th:
         message = 'NI'
@@ -271,7 +274,7 @@ def checkData(df, th, split):
     
     return skip, message
 
-def checkSplit(dataset):
+def checkSplit(df):
     """
     Check if proper split for each target. 
     Checks (general)
@@ -280,8 +283,12 @@ def checkSplit(dataset):
     skip = True
     message = None
     
-    if dataset.y['BIOACT_PCHEMBL_VALUE_class'].nunique() == 1:
+    if df['BIOACT_PCHEMBL_VALUE_class'].nunique() == 1:
         message = 'SC'
+    elif len(df[df['BIOACT_PCHEMBL_VALUE_class'] == True]) < 5:
+        message = 'IA'
+    elif len(df[df['BIOACT_PCHEMBL_VALUE_class'] == False]) < 5:
+        message = 'II'
     else: 
         skip = False
     
@@ -383,7 +390,7 @@ def setSplitter(split):
 if __name__ == "__main__":
     N_CPU = 12
     
-    replicates = ['1', '2', '3']
+    replicates = ['1']
     for run_id in replicates:
         runs = {'run1': {'split':'rand', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
                 'run2': {'split':'rand', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
@@ -409,7 +416,7 @@ if __name__ == "__main__":
             
             print(f'\n----- Now running: {name} -----')
 
-            benchmarkLenselink(cwd = '/home/remco/projects/qlattice/benchmark/full_run',
+            benchmarkLenselink(cwd = '/home/remco/projects/ml_benchmark/benchmark/test',
                             data_loc = '/home/remco/projects/qlattice/dataset/lenselink2017_dataset.csv',
                             desc_loc = '/home/remco/projects/qlattice/dataset/lenselink2017_cmp_desc.json',
                             name = name,
