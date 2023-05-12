@@ -2,12 +2,10 @@ import math, os, random, sys, time
 import numpy as np
 import pandas as pd
 
-import feyn
-
 from qsprpred.data.data import QSPRDataset
 from qsprpred.data.utils.datasplitters import randomsplit, temporalsplit
 from qsprpred.data.utils.descriptorcalculator import DescriptorsCalculator
-from qsprpred.data.utils.descriptorsets import CustomCompoundDescriptor, FingerprintSet
+from qsprpred.data.utils.descriptorsets import CustomCompoundDescriptor
 from qsprpred.models.tasks import TargetTasks
 from qsprpred.models.models import QSPRsklearn
 
@@ -22,309 +20,425 @@ from sklearn.svm import SVC
 
 
 
-def benchmarkLenselink(cwd, data_loc, desc_loc, model, split, algorithm, th, name=None, morganFP=True, save_split=False, debug_slice=None):
+def benchmarkMachineLearning(data_path,
+                             pred_col,
+                             smiles_col,
+                             desc,
+                             model, 
+                             th,
+                             split, 
+                             split_param,
+                             algorithm, 
+                             alg_param,
+                             cwd=os.getcwd(), 
+                             tgt_col=None,
+                             desc_standardizer=None,
+                             desc_path=None,
+                             name=None,
+                             reps=1, 
+                             n_jobs=1,
+                             save_split=False, 
+                             debug_slice=None):
     """
     Benchmark bioactivity data using the Lenselink, et al. (2017) protocol.
 
     Args: 
-        name (str, optional) : Base name to save results
-                        Default: name=split+'_'+algorithm+'_'+model
         cwd (str) : PATH to working directory
-        data_loc (str) : PATH to bioactivity dataset
-        desc_loc (str) : PATH to descriptor set
-        model (str) : Select ML model:
-                         'QSPR'
-        split (str) : Select datasplit:
-                        'rand' - Random datasplit
-                        'temp' - Temporal datasplit
-        algorithm (str) : Select algorithm:
-                            'LR' - Logistic Regression
-                            'NB' - Naive Bayes  
-                            'QL' - QLattice      
-                            'RF' - Random Forest
-                            'SVM' - Support Vector Machine 
+            Default: os.getcwd()
+
+        data_path (str) : PATH to bioactivity dataset
+        pred_col (str) : Column name of property to be predicted
+        smiles_col (str) : Column name containing canonical SMILES
+        tgt_col (str, optional) : Column name of target identifiers for QSAR models
+
+        desc (list) : Select (multiple) descriptors:
+            Options: 'custom'
+        desc_standardizer (str) : Select descriptor standardizer:
+            Options: None -> Might not work for NB
+                     'MinMaxScaler'
+        desc_path (str, optional) : PATH to descriptor set if desc = custom
+
+        model (str) : Select ML method:
+            Options: 'QSPR'
+
         th (float) : Set active/inactive threshold
-        morganFP (bool, optional) : (De)activate Morgan Fingerprints
+
+        split (str) : Select datasplit method:
+            Options: 'rand' - Random datasplit
+                     'temp' - Temporal datasplit
+        split_param (dict) : Set datasplit parameters as used in QSPRPred.
+            if split == 'rand':
+                {test_fraction (float): fraction of total dataset to testset}
+            if split == 'temp':
+                {timesplit(float): time point after which sample to test set,
+                 timeprop (str): column name of column in df that contains the timepoints}
+            
+        algorithm (str) : Select ML algorithm:
+            Options: 'LR' - Logistic Regression
+                     'NB' - Naive Bayes      
+                     'RF' - Random Forest
+                     'SVM' - Support Vector Machine
+        alg_param (dict) : Set algorithm parameters. Example:
+            if algorithm == 'RF':
+                {'n_estimators':1000,
+                 'max_depth':None,
+                 'max_features':0.3}
+
+        name (str) : Base name to save results
+            Default: split + '_' + algorithm + '_' + str(th)
+                    
+        reps (int) : Set number of replicates
+            Default: 1
+        n_jobs (int) : Set number of CPUs
+            Default: 1
+
         save_split (bool, optional) : Save test and training sets with descriptors
-        debug_slice (int, optional) : Create slice of X targets
+        debug_slice (int, optional) : Create slice of targets for debugging runs
     """
+    # Check if paths exist
     if not os.path.exists(cwd):
         os.makedirs(cwd)
     os.chdir(cwd)    
 
-    if not os.path.exists(data_loc):
-        sys.exit(f"Error: data_loc ({data_loc}) does not exist")
-    if not os.path.exists(desc_loc):
-        sys.exit(f"Error: desc_loc ({desc_loc}) does not exist")
+    if not os.path.exists(data_path):
+        sys.exit(f"Error: data_loc ({data_path}) does not exist")
+    if desc == 'custom':
+        if not os.path.exists(desc_path):
+            sys.exit(f"Error: desc_loc ({desc_path}) does not exist")
 
-    if not name:
-        name = split+'_'+algorithm+'_'+str(th)
- 
     # Retrieve dataset
-    dataframe = pd.read_csv(data_loc, sep=',')
+    dataframe = pd.read_csv(data_path, sep=',')
 
-    # Modelling
-    start_time = time.time() 
-    if model == 'QSAR':
-        pred_pool, results_compl, skip_count = qsprClassification(name = name,
-                                                                  df = dataframe, 
-                                                                  th = th,
-                                                                  split = split,  
-                                                                  desc_loc = desc_loc, 
-                                                                  morganFP = morganFP,                                                         
-                                                                  algorithm = algorithm,
-                                                                  save_split = save_split,
-                                                                  debug_slice = debug_slice
-                                                                  )
-    else:
-        sys.exit(f"Error: {model} not in model options ['QSAR']")
+    # Setup runs
+    for rep in range(reps):
+        if not name:
+            name = split + '_' + algorithm + '_' + str(th)
+        name += '_' + str(rep)
+ 
+        # Modelling
+        start_time = time.time() 
+        if model == 'QSAR':
+            metrics_Global, metrics_PerTarget, skip_count = modelQSAR(df = dataframe, 
+                                                                      pred_col = pred_col,
+                                                                      smiles_col = smiles_col,
+                                                                      tgt_col = tgt_col,
+                                                                      desc = desc,
+                                                                      desc_standardizer = desc_standardizer,
+                                                                      desc_path = desc_path,
+                                                                      split = split, 
+                                                                      split_param = split_param,
+                                                                      algorithm = algorithm,
+                                                                      th = th,
+                                                                      name = name,
+                                                                      n_jobs = n_jobs,
+                                                                      save_split = save_split,
+                                                                      debug_slice = debug_slice)
+        else:
+            sys.exit(f"Error: {model} not in model options ['QSAR']")
+        runtime = time.time() - start_time
 
-    runtime = time.time() - start_time
+        # Calculate general model-wide metrics
+        metrics_merged = pd.concat([metrics_Global, metrics_PerTarget])
+        metrics_Mean = metrics_merged[['BEDROC', 'AUC', 'MCC', 'Precision', 'Recall']].mean()
 
-    # Calculate final metrics
-    avg = results_compl[['BEDROC', 'AUC', 'MCC', 'Precision', 'Recall']].mean()
-    avg_bedroc, avg_auc, avg_mcc, avg_precision, avg_recall = avg['BEDROC'], avg['AUC'], avg['MCC'], avg['Precision'], avg['Recall']
-    global_mcc, global_precision, global_recall, global_auc, global_bedroc = calculateMetrics(pred=pred_pool)
+        results_global = pd.DataFrame({'NAME': name,
+                                       'RUNTIME': runtime, 
+                                       'N_TGT': dataframe[tgt_col].nunique(),
+                                       'N_SKIP': skip_count,
+                                       'MEAN_BEDROC': metrics_Mean['BEDROC'], 
+                                       'MEAN_AUC': metrics_Mean['AUC'], 
+                                       'MEAN_MCC': metrics_Mean['MCC'],
+                                       'MEAN_Precision': metrics_Mean['Precision'],        
+                                       'MEAN_Recall': metrics_Mean['Recall'],                                    
+                                       'GLOBAL_BEDROC': metrics_Global['BEDROC'], 
+                                       'GLOBAL_AUC': metrics_Global['AUC'], 
+                                       'GLOBAL_MCC': metrics_Global['MCC'],
+                                       'GLOBAL_Precision': metrics_Global['Precision'],
+                                       'GLOBAL_Recall': metrics_Global['Recall'],
+                                       'AVG_BEDROC': metrics_PerTarget['BEDROC'], 
+                                       'AVG_AUC': metrics_PerTarget['AUC'], 
+                                       'AVG_MCC': metrics_PerTarget['MCC'],
+                                       'AVG_Precision': metrics_PerTarget['Precision'],                                    
+                                       'AVG_Recall': metrics_PerTarget['Recall']}, index=[0])
+        print(results_global)    
 
-    mean_bedroc, sem_bedroc = calculateStatistics([avg_bedroc, global_bedroc])
-    mean_auc, sem_auc = calculateStatistics([avg_auc, global_auc])
-    mean_mcc, sem_mcc = calculateStatistics([avg_mcc, global_mcc])
-    mean_precision, sem_precision = calculateStatistics([avg_precision, global_precision])
-    mean_recall, sem_recall = calculateStatistics([avg_recall, global_recall])
+        if not os.path.exists('./results/summary.csv'):
+            results_global.to_csv('./results/summary.csv', index=False, header=True)
+        else:
+            results_global.to_csv('./results/summary.csv', mode='a', index=False, header=False)
 
-    results_global = pd.DataFrame({'NAME': name,
-                                   'RUNTIME': runtime, 
-                                   'N_TGT': dataframe['TGT_CHEMBL_ID'].nunique(),
-                                   'N_SKIP': skip_count,
-                                   'MEAN_BEDROC': mean_bedroc, 
-                                   'MEAN_AUC': mean_auc, 
-                                   'MEAN_MCC': mean_mcc,
-                                   'MEAN_Precision': mean_precision,        
-                                   'MEAN_Recall': mean_recall,
-                                   'SEM_BEDROC': sem_bedroc, 
-                                   'SEM_AUC': sem_auc, 
-                                   'SEM_MCC': sem_mcc,
-                                   'SEM_Precision': sem_precision,
-                                   'SEM_Recall': sem_recall,                                    
-                                   'GLOBAL_BEDROC': global_bedroc, 
-                                   'GLOBAL_AUC': global_auc, 
-                                   'GLOBAL_MCC': global_mcc,
-                                   'GLOBAL_Precision': global_precision,
-                                   'GLOBAL_Recall': global_recall,
-                                   'AVG_BEDROC': avg_bedroc, 
-                                   'AVG_AUC': avg_auc, 
-                                   'AVG_MCC': avg_mcc,
-                                   'AVG_Precision': avg_precision,                                    
-                                   'AVG_Recall': avg_recall                                    
-                                  }, index=[0])
-    print(results_global)    
+    return results_global
 
-    os.makedirs('./results', exist_ok=True) 
-    results_compl.to_csv('./results/tgt_'+name+'.csv', index=False)
-
-    if not os.path.exists('./results/summary.csv'):
-        results_global.to_csv('./results/summary.csv', index=False, header=True)
-    else:
-        results_global.to_csv('./results/summary.csv', mode='a', index=False, header=False)
-
-def qsprClassification(name, df, th, split, desc_loc, morganFP, algorithm, save_split=False, debug_slice=None):
+def modelQSAR(df, pred_col, smiles_col, tgt_col, desc, split, split_param, algorithm, alg_param, th, name, n_jobs, desc_standardizer=None, desc_path=None, save_split=False, debug_slice=None):
     """
-    Preform QSAR classification modelling for a whole dataset
+    Preform QSAR classification modelling
 
     Args: 
-        name (str) : Base name for QSAR models
         df (pd.DataFrame) : Bioactivity dataset
-        th (float) : Set active/inactive threshold
-        split (str) : Selected datasplit    
-        desc_loc (str) : PATH to descriptor set
-        morganFP (bool) : (De)activate Morgan Fingerprints
-        algorithm (str) : Selected algorithm
-        save_split (bool, optional) : Save test and training sets with descriptors
-        debug_slice (int, optional) : Create slice of X targets
-    """    
-    results_compl = pred_pool = pd.DataFrame()
-    
-    tgt_count = skip_count = 0
-    tgt_total = df['TGT_CHEMBL_ID'].nunique()
+        pred_col (str) : Column name of property to be predicted
+        smiles_col (str) : Column name containing canonical SMILES
+        tgt_col (str, optional) : Column name of target identifiers for QSAR models
 
-    for tgt, df_tgt in df.groupby('TGT_CHEMBL_ID'):     
+        desc (str) : Select descriptors:
+            Options: 'custom'
+        desc_standardizer (str) : Select descriptor standardizer:
+            Options: None -> Might not work for NB
+                     'MinMaxScaler'
+            Default: None
+        desc_path (str, optional) : PATH to descriptor set if desc = custom
+
+        split (str) : Select datasplit method:
+            Options: 'rand' - Random datasplit
+                     'temp' - Temporal datasplit
+        split_param (dict) : Set datasplit parameters as used in QSPRPred.
+            if split == 'rand':
+                {test_fraction (float): fraction of total dataset to testset}
+            if split == 'temp':
+                {timesplit(float): time point after which sample to test set,
+                 timeprop (str): column name of column in df that contains the timepoints}
+
+        algorithm (str) : Select ML algorithm:
+            Options: 'LR' - Logistic Regression
+                     'NB' - Naive Bayes      
+                     'RF' - Random Forest
+                     'SVM' - Support Vector Machine
+        alg_param (dict) : Set algorithm parameters. Example:
+            if algorithm == 'RF':
+                {'n_estimators':1000,
+                 'max_depth':None,
+                 'max_features':0.3}
+
+        th (float) : Set active/inactive threshold
+
+        name (str) : Base name to save results
+            Default: split + '_' + algorithm + '_' + str(th)
+                    
+        n_jobs (int) : Set number of CPUs
+            Default: 1
+
+        save_split (bool, optional) : Save test and training sets with descriptors
+        debug_slice (int, optional) : Create slice of targets for debugging runs
+    """    
+    dataset = QSPRDataset()
+    class_col = pred_col + '_class' 
+    label_col = class_col + '_Label'
+    probAct_col = class_col + '_ProbabilityClass_1'
+
+    results_compl = pred_pool = pd.DataFrame()
+    tgt_count = skip_count = 0
+
+    tgt_total = df[tgt_col].nunique()
+
+    # Split data per target
+    for tgt, df_tgt in df.groupby(tgt_col):     
         tgt_count += 1
+
         if debug_slice:
             if tgt_count > debug_slice:
                 continue
-        
-        model_name = tgt +'_'+ name
+
+        model_name = tgt + '_' + name
         os.makedirs('./'+name+'/qspr/models/'+model_name, exist_ok=True)
 
         print(f'\n{model_name} ({tgt_count}/{tgt_total}) - {len(df_tgt)} data points')
 
-        pred_tgt = pd.DataFrame()
-
         # Check data
-        skip, message = checkData(df_tgt, th, split)
+        skip, error_msg = checkData(df_tgt, pred_col, th, split, split_param)
 
-        # Setup QSPRPred dataset and make predictions
+        # Setup dataset using QSPRPred
         if not skip:
             dataset = QSPRDataset(name = model_name,
                                   store_dir = name,
                                   df = df_tgt,
-                                  target_props = [{'name':"BIOACT_PCHEMBL_VALUE", 
+                                  target_props = [{'name':pred_col, 
                                                    'task':TargetTasks.SINGLECLASS,
                                                    'th':[th]}],
-                                  smilescol = 'Canonical_Smiles',                              
-                                  overwrite = True)
+                                  smilescol = smiles_col,                              
+                                  overwrite = True,
+                                  n_jobs = n_jobs)
     
-            feature_calculator = setFeatureCalculator(desc_loc, morganFP)
-            feature_standardizer = setFeatureStandardizer(algorithm)
+            feature_calculator = setFeatureCalculator(desc, desc_path)
+            feature_standardizer = setFeatureStandardizer(desc_standardizer)
 
-            dataset = prepareDatasetQSPRPred(dataset, setSplitter(split), feature_calculator, feature_standardizer)
+            # Create test/training set with descriptors
+            dataset = prepareDatasetQSPRPred(dataset, setSplitter(split, split_param), feature_calculator, feature_standardizer)
+
+            # During random split, redo selection to ensure training set contains enough active and inactive datapoints
             if split == 'rand':
-                while dataset.y['BIOACT_PCHEMBL_VALUE_class'].nunique() == 1:
+                while len(dataset.y[dataset.y[class_col] == True]) < 5 and \
+                      len(dataset.y[dataset.y[class_col] == False]) < 5: 
                     random.seed(random.random())
                     dataset = prepareDatasetQSPRPred(dataset, setSplitter(split), feature_calculator, feature_standardizer)
 
             # Check split
-            skip, message = checkSplit(dataset)
-            dp_train = len(dataset.y)
-            dp_act_train = (dataset.y['BIOACT_PCHEMBL_VALUE_class'] == True).sum()
-            dp_test = len(dataset.y_ind)
-            dp_act_test = (dataset.y_ind['BIOACT_PCHEMBL_VALUE_class'] == True).sum()           
+            skip, error_msg = checkSplit(dataset, class_col)         
 
             # Save split
-            if algorithm in ['QL'] or save_split == True:
-                train_df = pd.merge(dataset.y, dataset.X, on='QSPRID')
-                test_df = pd.merge(dataset.y_ind, dataset.X_ind, on='QSPRID')
-                if save_split == True:
-                    os.makedirs('./splits', exist_ok=True) 
-                    train_df.to_csv('./splits/'+tgt+'_'+split+'_train.csv', index=False)
-                    test_df.to_csv('./splits/'+tgt+'_'+split+'_test.csv', index=False)                
+            if save_split == True:
+                saveSplit(dataset, split, tgt)             
 
             # Create model and make predictions
             if not skip:
                 if algorithm in ['LR', 'NB', 'RF', 'SVM']:
-                    alg, param = setAlgorithm(algorithm)
-                    model = QSPRsklearn(base_dir = name, 
-                                        name = model_name,
-                                        data = dataset, 
-                                        alg = alg, 
-                                        parameters=param)
+                    pred_tgt = modelQSPRsklearn(dataset, algorithm, alg_param, name, model_name)
+                else:
+                    sys.exit(f"Error: {algorithm} not in algorithm options ['LR', 'NB', 'RF', 'SVM']")
 
-                    model.evaluate(cross_validation=False)
-                    model.fit()
-                if algorithm in ['QL']:
-                    ql = feyn.QLattice()
-                    stypes = {col: "f" for col in train_df.columns}
-                    
-                    models = ql.auto_run(train_df, 
-                                         output_name = 'BIOACT_PCHEMBL_VALUE_class', 
-                                         kind = 'classification',
-                                         stypes = stypes,
-                                         n_epochs=10,
-                                         threads=N_CPU,
-                                         max_complexity=10)
-                    model = models[0]
-                    with open('./'+name+'/qspr/models/'+model_name+'/'+model_name+'_expression.txt', 'w') as f:
-                        f.write(str(model.sympify(signif=3)))
-
-        # Calculate metrics from predictions
-        if not skip:
-            if algorithm in ['LR', 'NB', 'RF', 'SVM']:
-                pred_tgt = pd.read_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t')
-            if algorithm in ['QL']:
-                pred_tgt['BIOACT_PCHEMBL_VALUE_class_Label'] = test_df['BIOACT_PCHEMBL_VALUE_class']
-                pred_tgt['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'] = model.predict(test_df)               
-        else:
-            # Create random target prediction
+        # Create random predictions if target is skipped
+        if skip:
             skip_count += 1
-            dp_train = dp_test = dp_act_train = dp_act_test = None
-            pred_tgt['BIOACT_PCHEMBL_VALUE_class_Label'] = df_tgt['BIOACT_PCHEMBL_VALUE'] >= th
-            pred_tgt['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'] = np.random.rand(len(pred_tgt))
+            pred_tgt = modelRandom(df_tgt, pred_col, label_col, probAct_col, th, name, model_name)
 
-        if skip or algorithm in ['QL']:
-            pred_tgt.to_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t', index=False)
-
-        pred_pool = pd.concat([pred_pool, pred_tgt])
-
-        mcc, precision, recall, auc, bedroc = calculateMetrics(pred_tgt)
+        # Calculate model results (counts and metrics)
+        dataset_counts = calculateCounts(dataset, class_col, skip)
+        metrics = calculateMetrics(pred_tgt, label_col, probAct_col)
 
         results_tgt = pd.DataFrame({'TGT': tgt,  
                                     'DATA': len(df_tgt),
-                                    'TRAIN': dp_train, 
-                                    'ACT_TRAIN': dp_act_train,
-                                    'TEST': dp_test,
-                                    'ACT_TEST': dp_act_test,
-                                    'BEDROC': bedroc, 
-                                    'AUC': auc, 
-                                    'MCC': mcc, 
-                                    'Precision': precision,
-                                    'Recall': recall,
-                                    'SKIP': message}, 
-                                    index=[0])   
+                                    'TRAIN': dataset_counts['TRAIN'], 
+                                    'ACT_TRAIN': dataset_counts['ACT_TRAIN'],
+                                    'TEST': dataset_counts['TEST'],
+                                    'ACT_TEST': dataset_counts['ACT_TEST'],
+                                    'BEDROC': metrics['BEDROC'], 
+                                    'AUC': metrics['AUC'], 
+                                    'MCC': metrics['MCC'], 
+                                    'Precision': metrics['Precision'],
+                                    'Recall': metrics['Recall'],
+                                    'SKIP': error_msg}, index=[0])   
         print(results_tgt)
-        results_compl = pd.concat([results_compl, results_tgt], ignore_index=True)   
 
-    return pred_pool, results_compl, skip_count
+        # Save model predictions and results into global pool
+        pred_pool = pd.concat([pred_pool, pred_tgt])
+        results_pool = pd.concat([results_compl, results_tgt], ignore_index=True)
 
-def checkData(df, th, split):
+    # Save pooled results
+    os.makedirs('./results', exist_ok=True) 
+    results_pool.to_csv('./results/tgt_'+name+'.csv', index=False) 
+
+    # Calculate QSAR metrics
+    metrics_Global = calculateMetrics(pred_pool, label_col, probAct_col)
+    metrics_PerTarget = results_pool[['BEDROC', 'AUC', 'MCC', 'Precision', 'Recall']].mean()
+
+    return metrics_Global, metrics_PerTarget, skip_count
+
+def checkData(df, pred_col, th, split, split_param):
     """
     Check if proper bioactivity data for each target.
-    Checks (general):
-        At least 1 active data point at threshold - No Actives (NA)
-        At least 1 inactive data point at threshold - No Inactives (NI)
-    Checks (temporal split)
-        At least 1 datapoint in training set - No Train (NTr)
-        At least 1 datapoint in test set - No Test (NTe)
+    Checks:
+        Contains active class at threshold - NoActives
+        Contains inactive class at threshold - NoInactives
+
+    The following checks are not mentioned in BTH, but were verbally confirmed by BB:
+        At least 30 datapoints - InsufficientDatapoints
+        Has at least 5 actives at threshold - InsufficientActives
+        Has at least 5 inactives at threshold - InsufficientInactives
     """
-    skip = True
-    message = None
+    if df[pred_col].max() < th:
+        error_msg = 'NoActives'
+    elif df[pred_col].min() >= th:
+        error_msg = 'NoInactives'
 
-    if df['BIOACT_PCHEMBL_VALUE'].max() < th:
-        message = 'NA'
-    elif df['BIOACT_PCHEMBL_VALUE'].min() >= th:
-        message = 'NI'
-    elif split == 'temp' and df['DOC_YEAR'].min() >= 2013:         
-        message = 'NTr'
-    elif split == 'temp' and df['DOC_YEAR'].max() < 2013:
-        message = 'NTe'
+    elif len(df) < 30:
+        error_msg = 'InsufficientDatapoints'       
+    elif len(df[df[pred_col] < th]) < 5:
+        error_msg = 'InsufficientActives'
+    elif len(df[df[pred_col] >= th]) >= 5:
+        error_msg = 'InsufficientInactives'
+       
     else:
-        skip = False
-    
-    return skip, message
+        error_msg = None
 
-def checkSplit(dataset):
+    # Additional checks if split is temporal
+    if split == 'temp' and 'error_msg' == None:
+        error_msg = checkDataTemp(df, split_param)
+
+    # Skip if a check fails
+    if error_msg == None:
+        skip = False
+    else: 
+        skip = True
+
+    return skip, error_msg
+
+def checkDataTemp(df, split_param):
+    """
+    Check if proper bioactivity data for each target for temporal split.
+    Checks:
+        At least 1 datapoint in training set - NoTraining
+        At least 1 datapoint in test set - NoTest
+    """
+    if df[split_param['timeprop']].min() >= split_param['timesplit']:         
+        error_msg = 'NoTraining'
+    elif df[split_param['timeprop']].max() < split_param['timesplit']:
+        error_msg = 'NoTest'
+    else:
+        error_msg = None
+
+    return error_msg
+
+def checkSplit(dataset, class_col):
     """
     Check if proper split for each target. 
     Checks (general)
-        2 classes in training set - Single Class in Train (SC)   
+        2 classes in training set - singleClassTrain   
     """
-    skip = True
-    message = None
-    
-    if dataset.y['BIOACT_PCHEMBL_VALUE_class'].nunique() == 1:
-        message = 'SC'
+    if dataset.y[class_col].nunique() == 1:
+        error_msg = 'singleClassTrain'
     else: 
-        skip = False
+        error_msg = None
     
-    return skip, message
+    # Skip if a check fails
+    if error_msg == None:
+        skip = False
+    else: 
+        skip = True
 
-def calculateMetrics(pred):
-    mcc, precision, recall = calculateMetricsSKLearn(pred) 
-    auc, bedroc = calculateMetricsRDKit(pred, 20)
+    return skip, error_msg
 
-    return mcc, precision, recall, auc, bedroc
+def calculateCounts(dataset, class_col, skip):
+    dataset_counts = pd.DataFrame()
+    
+    if skip == None:   
+        dp_train = len(dataset.y)
+        dp_act_train = (dataset.y[class_col] == True).sum()
+        dp_test = len(dataset.y_ind)
+        dp_act_test = (dataset.y_ind[class_col] == True).sum()
+    else:
+        dp_train = dp_act_train = dp_test = dp_act_test = None
 
-def calculateMetricsRDKit(pred, alpha):
-    pred_rd = pred[['BIOACT_PCHEMBL_VALUE_class_Label', 'BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1']]
-    pred_rd = pred_rd.sort_values(by=['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'], ascending=False)
+    dataset_counts['TRAIN'] = dp_train
+    dataset_counts['ACT_TRAIN'] = dp_act_train
+    dataset_counts['TEST'] = dp_test
+    dataset_counts['ACT_TEST'] = dp_act_test
+
+    return dp_train, dp_act_train, dp_test, dp_act_test
+
+def calculateMetrics(pred, label_col, probAct_col):
+    metrics = pd.DataFrame()
+
+    mcc, precision, recall = calculateMetricsSKLearn(pred, label_col, probAct_col) 
+    auc, bedroc = calculateMetricsRDKit(pred, 20, label_col, probAct_col)
+
+    metrics['BEDROC'] = bedroc
+    metrics['AUC'] = auc
+    metrics['MCC'] = mcc
+    metrics['Precision'] = precision
+    metrics['Recall'] = recall
+
+    return metrics
+
+def calculateMetricsRDKit(pred, alpha, label_col, probAct_col):
+    pred_rd = pred[[label_col, probAct_col]]
+    pred_rd = pred_rd.sort_values(by=[probAct_col], ascending=False)
 
     auc = CalcAUC(scores = pred_rd.values, col=0)
     bedroc = CalcBEDROC(scores = pred_rd.values, col=0, alpha=alpha)
 
     return auc, bedroc
 
-def calculateMetricsSKLearn(pred):    
-    y_true = pred['BIOACT_PCHEMBL_VALUE_class_Label']
-    y_pred = np.where(pred['BIOACT_PCHEMBL_VALUE_class_ProbabilityClass_1'] >= 0.5, 1, 0)
+def calculateMetricsSKLearn(pred, label_col, probAct_col):    
+    y_true = pred[label_col]
+    y_pred = np.where(pred[probAct_col] >= 0.5, 1, 0)
            
     mcc = matthews_corrcoef(y_true=y_true, y_pred=y_pred)
     precision = precision_score(y_true=y_true, y_pred=y_pred)
@@ -334,10 +448,34 @@ def calculateMetricsSKLearn(pred):
 
 def calculateStatistics(values):
     mean = sum(values) / len(values)
-    variance = sum([(value - mean) ** 2 for value in values]) / (len(values) - 1)
-    sem = math.sqrt(variance / len(values))
 
-    return mean, sem
+
+    return mean
+
+def modelQSPRsklearn(dataset, algorithm, alg_param, name, model_name):
+    alg = setAlgorithm(algorithm)
+    model = QSPRsklearn(base_dir = name, 
+                        name = model_name,
+                        data = dataset, 
+                        alg = alg, 
+                        parameters = alg_param)
+
+    model.evaluate(cross_validation=False)
+    model.fit()
+
+    pred_tgt = pd.read_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t')
+
+    return pred_tgt     
+
+def modelRandom(df_tgt, pred_col, label_col, probAct_col, th, name, model_name):
+    pred_tgt = pd.DataFrame()
+
+    pred_tgt[label_col] = df_tgt[pred_col] >= th
+    pred_tgt[probAct_col] = np.random.rand(len(pred_tgt))
+
+    pred_tgt.to_csv('./'+name+'/qspr/models/'+model_name+'/'+model_name+'.ind.tsv', sep='\t', index=False)
+
+    return pred_tgt
 
 def prepareDatasetQSPRPred(dataset, splitter, feature_calculator, feature_standardizer):
     dataset.prepareDataset(smiles_standardizer=None,
@@ -347,53 +485,55 @@ def prepareDatasetQSPRPred(dataset, splitter, feature_calculator, feature_standa
     
     return dataset
 
+def saveSplit(dataset, split, tgt):
+    os.makedirs('./splits', exist_ok=True)
+
+    train_df = pd.merge(dataset.y, dataset.X, on='QSPRID')
+    train_df.to_csv('./splits/'+tgt+'_'+split+'_train.csv', index=False)
+    test_df = pd.merge(dataset.y_ind, dataset.X_ind, on='QSPRID')
+    test_df.to_csv('./splits/'+tgt+'_'+split+'_test.csv', index=False) 
+
 def setAlgorithm(algorithm):
     if algorithm == 'LR':
         alg = LogisticRegression
-        param = {'solver':'sag',
-                      'max_iter':100}
-    elif algorithm == 'NB':
+    if algorithm == 'NB':
         alg = MultinomialNB
-        param = None
-    elif algorithm == 'RF':
+    if algorithm == 'RF':
         alg = RandomForestClassifier
-        param = {'n_estimators':1000,
-                        'max_depth':None,
-                        'max_features':0.3}
-    elif algorithm == 'SVM':
+    if algorithm == 'SVM':
         alg = SVC
-        param = {'kernel':'rbf',
-                        'gamma':'auto',
-                        'C':1,
-                        'probability':True}
-    else:
-        sys.exit(f"Error: {algorithm} not in algorithm options ['LR', 'NB', 'RF', 'SVM']")
 
-    return alg, param
+    return alg
 
-def setFeatureCalculator(desc_loc, morganFP):
-    descsets = [CustomCompoundDescriptor(fname=desc_loc)]
-    if morganFP:
-        descsets.append(FingerprintSet(fingerprint_type="MorganFP", radius=3, nBits=256))
+def setFeatureCalculator(desc, desc_path):
+    descsets = []
+    
+    for descriptor in desc:
+        if descriptor == 'custom':
+            descsets.append(CustomCompoundDescriptor(fname=desc_path))
+        else:
+            sys.exit(f"Error: {descriptor} not in descriptor options ['custom']")
     
     feature_calculator = DescriptorsCalculator(descsets=descsets)
 
     return feature_calculator
 
-def setFeatureStandardizer(algorithm):
-    if algorithm == 'NB':
-        feature_standardizer = MinMaxScaler()
-    else:
+def setFeatureStandardizer(desc_standardizer):
+    if desc_standardizer == None:
         feature_standardizer = None
-    
+    elif desc_standardizer == 'MinMaxScaler':
+        feature_standardizer = MinMaxScaler()
+    else: 
+        sys.exit(f"Error: {desc_standardizer} not in standardizer options [None, 'MinMaxScaler']")
+     
     return feature_standardizer
 
-def setSplitter(split):
+def setSplitter(split, split_param):
     if split == 'rand':
-        splitter = randomsplit(test_fraction=0.3)
+        splitter = randomsplit(test_fraction=split_param['test_fraction'])
     elif split == 'temp':
-        splitter = temporalsplit(timesplit=2012,
-                              timeprop='DOC_YEAR')  
+        splitter = temporalsplit(timesplit=split_param['timesplit'],
+                                 timeprop=split_param['timeprop'])  
     else:
         sys.exit(f"Error: {split} not in split options ['rand', 'temp']")
 
@@ -401,46 +541,34 @@ def setSplitter(split):
 
 
 if __name__ == "__main__":
-    N_CPU = 12
-    
-    replicates = ['1', '2', '3']
-    for run_id in replicates:
-        runs = {'run1': {'split':'rand', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
-                'run2': {'split':'rand', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
-                'run3': {'split':'rand', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
-                'run4': {'split':'rand', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
-                'run5': {'split':'rand', 'algorithm':'LR', 'th':6.5, 'morganFP':True},
-                'run6': {'split':'rand', 'algorithm':'QL', 'th':6.5, 'morganFP':True},
-                'run7': {'split':'rand', 'algorithm':'QL', 'th':6.5, 'morganFP':False},
-                'run8': {'split':'temp', 'algorithm':'NB', 'th':5.0, 'morganFP':True},
-                'run9': {'split':'temp', 'algorithm':'NB', 'th':6.5, 'morganFP':True},
-                'run10': {'split':'temp', 'algorithm':'RF', 'th':6.5, 'morganFP':True},
-                'run11': {'split':'temp', 'algorithm':'SVM', 'th':6.5, 'morganFP':True},
-                'run12': {'split':'temp', 'algorithm':'LR', 'th':6.5, 'morganFP':True},
-                'run13': {'split':'temp', 'algorithm':'QL', 'th':6.5, 'morganFP':True},
-                'run14': {'split':'temp', 'algorithm':'QL', 'th':6.5, 'morganFP':False}}
+    runs = {'run1': {'split':'rand', 'split_param': {'test_fraction': 0.3}, 'algorithm':'NB', 'alg_param': {'alpha':1.0, 'force_alpha':True}, 'th':5.0},
+            'run2': {'split':'rand', 'split_param': {'test_fraction': 0.3}, 'algorithm':'NB', 'alg_param': {'alpha':1.0, 'force_alpha':True}, 'th':6.5},
+            'run3': {'split':'rand', 'split_param': {'test_fraction': 0.3}, 'algorithm':'RF', 'alg_param': {'n_estimators':1000, 'max_depth':None, 'max_features':0.3}, 'th':6.5},
+            'run4': {'split':'rand', 'split_param': {'test_fraction': 0.3}, 'algorithm':'SVM', 'alg_param': {'kernel':'rbf', 'gamma':'auto', 'max_iter': -1, 'probability':True}, 'th':6.5},
+            'run5': {'split':'rand', 'split_param': {'test_fraction': 0.3}, 'algorithm':'LR', 'alg_param': {'solver':'sag', 'max_iter':100}, 'th':6.5},
+            'run6': {'split':'temp', 'split_param': {'timesplit': 2012, 'timeprop': 'DOC_YEAR'}, 'algorithm':'NB', 'alg_param': {'alpha':1.0, 'force_alpha':True}, 'th':5.0},
+            'run7': {'split':'temp', 'split_param': {'timesplit': 2012, 'timeprop': 'DOC_YEAR'}, 'algorithm':'NB', 'alg_param': {'alpha':1.0, 'force_alpha':True}, 'th':6.5},
+            'run8': {'split':'temp', 'split_param': {'timesplit': 2012, 'timeprop': 'DOC_YEAR'}, 'algorithm':'RF', 'alg_param': {'n_estimators':1000, 'max_depth':None, 'max_features':0.3}, 'th':6.5},
+            'run9': {'split':'temp', 'split_param': {'timesplit': 2012, 'timeprop': 'DOC_YEAR'}, 'algorithm':'SVM', 'alg_param': {'kernel':'rbf', 'gamma':'auto', 'max_iter': -1, 'probability':True}, 'th':6.5},
+            'run10': {'split':'temp', 'split_param': {'timesplit': 2012, 'timeprop': 'DOC_YEAR'}, 'algorithm':'LR', 'alg_param': {'solver':'sag', 'max_iter':100}, 'th':6.5}}
 
-        for run, variables in runs.items():
-            split = variables['split']
-            algorithm = variables['algorithm']
-            th = variables['th']
-            morganFP = variables['morganFP']
-            
-            name = split+'_'+algorithm+'_'+str(th)
-            if morganFP == False:
-                name += '_noFP'
-            name += '_'+run_id
-            
-            print(f'\n----- Now running: {name} -----')
-
-            benchmarkLenselink(cwd = '/home/remco/projects/qlattice/benchmark/full_run',
-                            data_loc = '/home/remco/projects/qlattice/dataset/lenselink2017_dataset.csv',
-                            desc_loc = '/home/remco/projects/qlattice/dataset/lenselink2017_cmp_desc.json',
-                            name = name,
-                            model= 'QSAR',  
-                            split = split,     
-                            algorithm = algorithm,            
-                            th = th,
-                            morganFP = morganFP,
-                            save_split = False,
-                            debug_slice = None)              
+    for run, variables in runs.items():        
+        benchmarkMachineLearning(cwd = '/home/remco/projects/ml_benchmark/benchmark/test',
+                                 data_path = '/home/remco/projects/qlattice/dataset/lenselink2017_dataset.csv',
+                                 pred_col = 'BIOACT_PCHEMBL_VALUE',
+                                 smiles_col = 'Canonical_Smiles',
+                                 tgt_col = 'TGT_CHEMBL_ID',
+                                 desc = 'custom',
+                                 desc_standardizer = 'MinMaxScaler',
+                                 desc_path = '/home/remco/projects/qlattice/dataset/lenselink2017_cmp_desc.json',
+                                 model= 'QSAR',  
+                                 split = variables['split'],   
+                                 split_param = variables['split_param'],  
+                                 algorithm = variables['algorithm'],   
+                                 alg_param = variables['alg_param'],         
+                                 th = variables['th'],
+                                 reps = 1,
+                                 name = None,
+                                 n_jobs = 1,
+                                 save_split = False,
+                                 debug_slice = None)              
