@@ -128,6 +128,7 @@ def benchmarkMachineLearning(data_path,
                                                                       split = split, 
                                                                       split_param = split_param,
                                                                       algorithm = algorithm,
+                                                                      alg_param = alg_param,
                                                                       th = th,
                                                                       name = name,
                                                                       n_jobs = n_jobs,
@@ -219,12 +220,12 @@ def modelQSAR(df, pred_col, smiles_col, tgt_col, desc, split, split_param, algor
         save_split (bool, optional) : Save test and training sets with descriptors
         debug_slice (int, optional) : Create slice of targets for debugging runs
     """    
-    dataset = QSPRDataset()
+    dataset = None
     class_col = pred_col + '_class' 
     label_col = class_col + '_Label'
     probAct_col = class_col + '_ProbabilityClass_1'
 
-    results_compl = pred_pool = pd.DataFrame()
+    results_pool = pred_pool = metrics_Global = pd.DataFrame()
     tgt_count = skip_count = 0
 
     tgt_total = df[tgt_col].nunique()
@@ -309,14 +310,14 @@ def modelQSAR(df, pred_col, smiles_col, tgt_col, desc, split, split_param, algor
 
         # Save model predictions and results into global pool
         pred_pool = pd.concat([pred_pool, pred_tgt])
-        results_pool = pd.concat([results_compl, results_tgt], ignore_index=True)
+        results_pool = pd.concat([results_pool, results_tgt], ignore_index=True)
 
     # Save pooled results
     os.makedirs('./results', exist_ok=True) 
     results_pool.to_csv('./results/tgt_'+name+'.csv', index=False) 
 
     # Calculate QSAR metrics
-    metrics_Global = calculateMetrics(pred_pool, label_col, probAct_col)
+    metrics_Global = pd.DataFrame(calculateMetrics(pred_pool, label_col, probAct_col), index=[0])
     metrics_PerTarget = results_pool[['BEDROC', 'AUC', 'MCC', 'Precision', 'Recall']].mean()
 
     return metrics_Global, metrics_PerTarget, skip_count
@@ -349,7 +350,7 @@ def checkData(df, pred_col, th, split, split_param):
         error_msg = None
 
     # Additional checks if split is temporal
-    if split == 'temp' and 'error_msg' == None:
+    if split == 'temp' and error_msg == None:
         error_msg = checkDataTemp(df, split_param)
 
     # Skip if a check fails
@@ -396,8 +397,6 @@ def checkSplit(dataset, class_col):
     return skip, error_msg
 
 def calculateCounts(dataset, class_col, skip):
-    dataset_counts = pd.DataFrame()
-    
     if skip == None:   
         dp_train = len(dataset.y)
         dp_act_train = (dataset.y[class_col] == True).sum()
@@ -406,24 +405,22 @@ def calculateCounts(dataset, class_col, skip):
     else:
         dp_train = dp_act_train = dp_test = dp_act_test = None
 
-    dataset_counts['TRAIN'] = dp_train
-    dataset_counts['ACT_TRAIN'] = dp_act_train
-    dataset_counts['TEST'] = dp_test
-    dataset_counts['ACT_TEST'] = dp_act_test
+    dataset_counts = {'TRAIN': dp_train,
+                      'ACT_TRAIN': dp_act_train,
+                      'TEST': dp_test,
+                      'ACT_TEST': dp_act_test}
 
-    return dp_train, dp_act_train, dp_test, dp_act_test
+    return dataset_counts
 
 def calculateMetrics(pred, label_col, probAct_col):
-    metrics = pd.DataFrame()
-
     mcc, precision, recall = calculateMetricsSKLearn(pred, label_col, probAct_col) 
     auc, bedroc = calculateMetricsRDKit(pred, 20, label_col, probAct_col)
 
-    metrics['BEDROC'] = bedroc
-    metrics['AUC'] = auc
-    metrics['MCC'] = mcc
-    metrics['Precision'] = precision
-    metrics['Recall'] = recall
+    metrics = {'BEDROC': bedroc,
+               'AUC': auc,
+               'MCC': mcc,
+               'Precision': precision,
+               'Recall': recall}
 
     return metrics
 
@@ -558,7 +555,7 @@ if __name__ == "__main__":
                                  pred_col = 'BIOACT_PCHEMBL_VALUE',
                                  smiles_col = 'Canonical_Smiles',
                                  tgt_col = 'TGT_CHEMBL_ID',
-                                 desc = 'custom',
+                                 desc = ['custom'],
                                  desc_standardizer = 'MinMaxScaler',
                                  desc_path = '/home/remco/projects/qlattice/dataset/lenselink2017_cmp_desc.json',
                                  model= 'QSAR',  
@@ -571,4 +568,4 @@ if __name__ == "__main__":
                                  name = None,
                                  n_jobs = 1,
                                  save_split = False,
-                                 debug_slice = None)              
+                                 debug_slice = 10)              
