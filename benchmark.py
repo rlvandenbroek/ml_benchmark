@@ -1,4 +1,4 @@
-import math, os, random, sys, time
+import os, random, sys, time
 import numpy as np
 import pandas as pd
 
@@ -109,11 +109,13 @@ def benchmarkMachineLearning(data_path,
     # Retrieve dataset
     dataframe = pd.read_csv(data_path, sep=',')
 
-    # Setup runs
+    # Set name
+    if not name:
+        name = split + '_' + algorithm + '_' + str(th)  
+    
+    # Create replicates
     for rep in range(reps):
-        if not name:
-            name = split + '_' + algorithm + '_' + str(th)
-        name += '_' + str(rep)
+        run_name = name + '_' + str(rep)
  
         # Modelling
         start_time = time.time() 
@@ -130,7 +132,7 @@ def benchmarkMachineLearning(data_path,
                                                                       algorithm = algorithm,
                                                                       alg_param = alg_param,
                                                                       th = th,
-                                                                      name = name,
+                                                                      name = run_name,
                                                                       n_jobs = n_jobs,
                                                                       save_split = save_split,
                                                                       debug_slice = debug_slice)
@@ -142,7 +144,7 @@ def benchmarkMachineLearning(data_path,
         metrics_merged = pd.concat([metrics_Global, metrics_PerTarget])
         metrics_Mean = metrics_merged[['BEDROC', 'AUC', 'MCC', 'Precision', 'Recall']].mean()
 
-        results_global = pd.DataFrame({'NAME': name,
+        results_global = pd.DataFrame({'NAME': run_name,
                                        'RUNTIME': runtime, 
                                        'N_TGT': dataframe[tgt_col].nunique(),
                                        'N_SKIP': skip_count,
@@ -342,9 +344,9 @@ def checkData(df, pred_col, th, split, split_param):
     elif len(df) < 30:
         error_msg = 'InsufficientDatapoints'       
     elif len(df[df[pred_col] < th]) < 5:
-        error_msg = 'InsufficientActives'
-    elif len(df[df[pred_col] >= th]) >= 5:
         error_msg = 'InsufficientInactives'
+    elif len(df[df[pred_col] >= th]) < 5:
+        error_msg = 'InsufficientActives'
        
     else:
         error_msg = None
@@ -368,9 +370,9 @@ def checkDataTemp(df, split_param):
         At least 1 datapoint in training set - NoTraining
         At least 1 datapoint in test set - NoTest
     """
-    if df[split_param['timeprop']].min() >= split_param['timesplit']:         
+    if df[split_param['timeprop']].min() > split_param['timesplit']:         
         error_msg = 'NoTraining'
-    elif df[split_param['timeprop']].max() < split_param['timesplit']:
+    elif df[split_param['timeprop']].max() <= split_param['timesplit']:
         error_msg = 'NoTest'
     else:
         error_msg = None
