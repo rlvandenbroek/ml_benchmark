@@ -188,11 +188,7 @@ class Benchmark():
 
             # Calculate general model-wide metrics
             metrics_merged = pd.concat([metrics_Global, metrics_PerTarget])
-            print(metrics_merged)
             metrics_Mean = pd.DataFrame(metrics_merged[["BEDROC", "AUC", "MCC", "Precision", "Recall"]].mean()).transpose()
-            print(metrics_Mean)
-            print(metrics_Global)
-            print(metrics_PerTarget)
 
             results_global = pd.DataFrame({"NAME": self.rep_name,
                                            "RUNTIME": runtime, 
