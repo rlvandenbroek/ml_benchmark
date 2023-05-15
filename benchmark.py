@@ -188,7 +188,11 @@ class Benchmark():
 
             # Calculate general model-wide metrics
             metrics_merged = pd.concat([metrics_Global, metrics_PerTarget])
-            metrics_Mean = metrics_merged[["BEDROC", "AUC", "MCC", "Precision", "Recall"]].mean()
+            print(metrics_merged)
+            metrics_Mean = pd.DataFrame(metrics_merged[["BEDROC", "AUC", "MCC", "Precision", "Recall"]].mean()).transpose()
+            print(metrics_Mean)
+            print(metrics_Global)
+            print(metrics_PerTarget)
 
             results_global = pd.DataFrame({"NAME": self.rep_name,
                                            "RUNTIME": runtime, 
@@ -298,7 +302,7 @@ class Benchmark():
 
         # Calculate QSAR metrics
         metrics_Global = pd.DataFrame(self.calculateMetrics(pred_pool), index=[0])
-        metrics_PerTarget = results_pool[["BEDROC", "AUC", "MCC", "Precision", "Recall"]].mean()
+        metrics_PerTarget = pd.DataFrame(results_pool[["BEDROC", "AUC", "MCC", "Precision", "Recall"]].mean()).transpose()
 
         return metrics_Global, metrics_PerTarget, skip_count
 
