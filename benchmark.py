@@ -469,8 +469,11 @@ class Benchmark():
         
         # During random split, redo selection to ensure training set contains enough active and inactive datapoints
         if self.split == "rand":
-            while len(dataset.y[dataset.y[self.class_col] == True]) < self.check_param["check_Ntrain"] or \
-                len(dataset.y[dataset.y[self.class_col] == False]) < self.check_param["check_Ntrain"]: 
+            counter = 0
+            while (len(dataset.y[dataset.y[self.class_col] == True]) < self.check_param["check_Ntrain"] or \
+                len(dataset.y[dataset.y[self.class_col] == False]) < self.check_param["check_Ntrain"]) and \
+                counter < 100: 
+                counter += 1
                 random.seed(random.random())
                 dataset.prepareDataset(smiles_standardizer = self.smiles_standardizer,
                                        split = self.setSplitter(),
