@@ -6,7 +6,7 @@ from rdkit import Chem
 
 def datasetLenselink(cwd, data_dir):
     """
-    Process dataset using the Lenselink, et al. (2017) protocol.
+    Process dataset using the Lenselink, et al. (2017) protocol for benchmarking.
 
     Args: 
         cwd (str) : PATH to working directory
@@ -68,10 +68,11 @@ def datasetLenselink(cwd, data_dir):
     df_desc = pd.merge(df_desc, df_mfp, on=['CMP_CHEMBL_ID'])
 
     # Process compound descriptor set
-    df_desc = df_desc.drop_duplicates(subset=['Canonical_Smiles']).drop(columns=['CMP_CHEMBL_ID'])
+    df_desc = df_desc.drop_duplicates(subset=['Canonical_Smiles'])
+    df_desc = df_desc.drop(["CMP_CHEMBL_ID", "TGT_CHEMBL_ID", "BIOACT_PCHEMBL_VALUE", "DOC_YEAR"], axis=1)
     df_desc = df_desc.set_index(['Canonical_Smiles'], drop=True)
 
-    print(f"Compounds with descriptors: {len(df_desc)}")
+    print(df_desc.columns)
     
     # Save dataset and compound descriptor files
     df_data.to_csv(data_path, index=False)
