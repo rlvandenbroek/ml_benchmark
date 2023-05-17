@@ -105,6 +105,7 @@ class Benchmark():
             algorithm (str) : Select ML algorithm:
                 Options: "LR" - Logistic Regression
                          "NB" - Naive Bayes      
+                         "QL" - QLattice
                          "RF" - Random Forest
                          "SVM" - Support Vector Machine
                          "random" - Random predictions (Baseline metrics)
@@ -262,6 +263,8 @@ class Benchmark():
                 if not skip:
                     if self.algorithm in ["LR", "NB", "RF", "SVM"]:
                         pred_tgt = self.modelQSPRsklearn(dataset_tgt, model_name)
+                    if self.algorithm in ["QL"]:
+                        pred_tgt = self.modelQLattice(dataset_tgt, model_name)
                     if self.algorithm in ["random"]:
                         pred_tgt = self.modelRandom(df_tgt, model_name)
 
@@ -379,7 +382,6 @@ class Benchmark():
             elif len(dataset.y[dataset.y[self.class_col] == False]) < self.check_param["check_Ntrain"]:
                 error_msg = "InsufficientInactivesTrain"
             elif len(dataset.y_ind) < self.check_param["check_ntest"]:
-                print(dataset.y_ind)
                 error_msg = "InsufficientTest"
         
         # Skip if a check fails
@@ -436,6 +438,49 @@ class Benchmark():
         recall = recall_score(y_true=y_true, y_pred=y_pred)
 
         return mcc, precision, recall
+
+    def modelQLattice(self, dataset, model_name):
+        """        
+        alg_param{"bool_type":          > Options: ["num", "cat"] > See https://docs.abzu.ai/docs/guides/essentials/model_parameters.html
+                  "n_epochs":           > See https://docs.abzu.ai/docs/guides/essentials/auto_run.html
+                  "max_complexity":     > See https://docs.abzu.ai/docs/guides/primitives/sample_models.html
+                  "loss_function":      > See https://docs.abzu.ai/docs/guides/primitives/fit_models.html
+                  "criterion":}         > See https://docs.abzu.ai/docs/guides/primitives/fit_models.html
+        """
+        import feyn
+        
+        ql = feyn.QLattice()
+
+        train_df = pd.merge(dataset.y, dataset.X, on="QSPRID")
+        test_df = pd.merge(dataset.y_ind, dataset.X_ind, on="QSPRID")
+
+        if self.alg_param["bool_type"] == "num":
+            stypes = {col: "f" for col in train_df.columns}
+        elif self.alg_param["bool_type"] == "cat":
+            stypes = {col: "c" if (train_df[col].isin([0, 1]).all()) else "f" for col in train_df.columns}
+        else:
+            sys.exit(f'Error: {self.alg_param["bool_type"]} not in semantic types options ["num", "cat"]')
+
+        models = ql.auto_run(train_df, 
+                             output_name = self.class_col, 
+                             kind = 'classification',
+                             stypes = stypes,
+                             n_epochs = self.alg_param["n_epochs"],
+                             max_complexity = self.alg_param["max_complexity"],
+                             loss_function = self.alg_param["loss_function"],
+                             criterion = self.alg_param["criterion"],
+                             threads = self.n_jobs)
+        model = models[0]
+        with open('./'+self.rep_name+'/qspr/models/'+model_name+'/'+model_name+'_expression.txt', 'w') as f:
+            f.write(str(model.sympify(signif=3)))
+        
+        pred_tgt = pd.DataFrame()
+        pred_tgt[self.label_col] = test_df[self.class_col]
+        pred_tgt[self.probN_col] = model.predict(test_df)  
+
+        pred_tgt.to_csv("./"+self.rep_name+"/qspr/models/"+model_name+"/"+model_name+".ind.tsv", sep="\t", index=False)
+
+        return pred_tgt
 
     def modelQSPRsklearn(self, dataset, model_name):
         model = QSPRsklearn(base_dir = self.rep_name, 
@@ -497,6 +542,8 @@ class Benchmark():
             self.alg = LogisticRegression
         elif self.algorithm == "NB":
             self.alg = MultinomialNB
+        elif self.algorithm == "QL":
+            pass
         elif self.algorithm == "RF":
             self.alg = RandomForestClassifier
         elif self.algorithm == "SVM":
@@ -504,7 +551,7 @@ class Benchmark():
         elif self.algorithm == "random":
             pass
         else:
-            sys.exit(f'Error: {self.algorithm} not in algorithm options ["LR", "NB", "RF", "SVM", "random"]')
+            sys.exit(f'Error: {self.algorithm} not in algorithm options ["LR", "NB", "QL", "RF", "SVM", "random"]')
 
         return
 
